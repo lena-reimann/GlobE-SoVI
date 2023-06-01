@@ -2,7 +2,7 @@
 #### estimate regression model based on vul char per flood event ####
 #####################################################################
 # by Lena Reimann
-# May 31, 2023
+# June 1, 2023
 
 # This script corresponds to the data processing described in '2) Flood Impact Analysis' of
 # Reimann et al. "An empirical social vulnerability map (‘GlobE-SoVI’) for flood risk assessment at global scale".
@@ -768,7 +768,4 @@ summary(exp.risk3)
 
 # write coefficients of Model 3
 write.csv(exp.risk3$coefficients, paste0(path, "regression_coefficients.csv"))
-
-
-####----------------------- continue with script 03 --------------------------####
 
