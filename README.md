@@ -1,8 +1,5 @@
 # GlobE-SoVI
-Data processing and analysis for calculating the Global Empirical Social Vulnerability Index (GlobE-SoVI) produced as part of the study
-
-Reimann, L, Koks, E, de Moel, H, Ton, M & JCJH Aerts: "An empirical social vulnerability map (‘GlobE-SoVI’) for flood risk assessment at global scale" (currently in peer review). 
-
+Data processing and analysis for calculating the Global Empirical Social Vulnerability Index (GlobE-SoVI) produced as part of the study Reimann, L, Koks, E, de Moel, H, Ton, M & JCJH Aerts: "An empirical social vulnerability map (â€˜GlobE-SoVIâ€™) for flood risk assessment at global scale" (currently in peer review). 
 The three scripts include the following processing and analysis steps:
 
 01_vulnerability_drivers = Preprocessing of potential social vulnerability drivers to raster data of 30 arc seconds (~1km) spatial resolution
