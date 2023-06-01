@@ -2,12 +2,12 @@
 #### produce final GlobE-SoVI map ####
 ######################################
 # by Lena Reimann
-# May 31, 2023
+# June 1, 2023
 
 # This script corresponds to the data processing described in '3) GlobE-SoVI' of
 # Reimann et al. "An empirical social vulnerability map (‘GlobE-SoVI’) for flood risk assessment at global scale".
-# The final output is a global social vulnerability raster calculated as the weighted sum of all relevant 
-# vulnerability variables scaled from 1-10 based on the 98th percent confidence interval (i.e. 1st and 99th percentiles removed).
+# The final output is a global social vulnerability map calculated as the weighted sum of all relevant 
+# vulnerability variables, scaled from 1-10, both in raster format (i.e. GeoTIFF) and vector format (i.e. shapefile) per administrative unit.
 
 rm(list=ls())
 
@@ -17,7 +17,6 @@ lib = "./path_to_R_libraries"
 # packages
 library(sp, lib.loc = lib)
 library(raster, lib.loc = lib)
-library(terra, lib.loc = lib)
 library(dplyr, lib.loc = lib)
 library(sf, lib.loc = lib)
 library(rgdal, lib.loc = lib)
@@ -79,11 +78,11 @@ tvl = raster(name)
 
 ####------------------ 2.) Functions --------------------####
 
-set0 <- function(x) {x[is.na(x)] <- 0; return(x)}
 setNA <- function(x) {x[x == 0] <- NA; return(x)}
 setNA_edu <- function(x) {x[x > 20] <- NA; return(x)}
 
-# scale social vulnerability raster
+
+# scale social vulnerability raster from 1-10
 vul_sc = function(vul, p) { #vul = vulnerability raster with positive and negative values; 
   #p = quantiles to calculate: provide vector of two if outliers should be removed, otherwise vector of one
   require(raster)
@@ -113,7 +112,7 @@ vul_sc = function(vul, p) { #vul = vulnerability raster with positive and negati
     rcl = matrix(rcl, ncol=3, byrow=TRUE)
     fct = reclassify(vul, rcl)
     
-    vul = overlay(vul, fct, fun = function(x, y) {return(x + y)}) ## values range from 0 to max
+    vul = overlay(vul, fct, fun = function(x, y) {return(x + y)}) # values range from 0 to max
     
   } else if (min > 0) {
     
@@ -122,7 +121,7 @@ vul_sc = function(vul, p) { #vul = vulnerability raster with positive and negati
     rcl = matrix(rcl, ncol=3, byrow=TRUE)
     fct = reclassify(vul, rcl)
     
-    vul = overlay(vul, fct, fun = function(x, y) {return(x - y)}) ## values range from 0 to max-min
+    vul = overlay(vul, fct, fun = function(x, y) {return(x - y)}) # values range from 0 to max-min
   }
   
   # 3. scale values
@@ -146,117 +145,80 @@ vul_sc = function(vul, p) { #vul = vulnerability raster with positive and negati
 
 ####------------------ 3.) Analysis --------------------####
 
-#### produce V index ####
+## 1. produce variable rasters (and write) ##
 
 # produce land mask from water mask
 rcl = c(-0.5, 2.5, 1,  2.5, 3.5, NA)
 rcl = matrix(rcl, ncol=3, byrow=TRUE)
 
-name = "gpw_v4_land.tif"
-name = paste(path, name, sep = "/")
+name = paste(path, "gpw_v4_land.tif", sep = "/")
 lan = reclassify(wat, rcl, filename = name, overwrite = T)
 
-# edu 
+# education
 mys.gen = overlay(prop, mys, fun = function(x, y) {return(x * y / 10)})
 mys.gen = calc(mys.gen, sum, na.rm = T)
 mys.gen = calc(mys.gen, fun = setNA)
 mys.gen = calc(mys.gen, fun = setNA_edu)
-writeRaster(mys.gen, paste0(path_vul, "/mys_gen.tif"), overwrite = T)
-
-edu.wgt = calc(mys.gen,  fun = function(x) {x * -0.199541185387587})
-writeRaster(edu.wgt, paste0(path_vul, "/edu_wgt.tif"), overwrite = T)
+writeRaster(mys.gen, paste0(path, "MYS_gender.tif"), overwrite = T)
 
 # income
 inc.gap = overlay(inc[[1]], inc[[2]], fun = function(x,y) {return((y - x) / y * 100)})
+inc.gap = calc(inc.gap, fun = setNA) # set income gap == 0 to NA because in those instances we do not have income data per gender
+writeRaster(inc.gap, paste0(path, "income_gap.tif"), overwrite = T)
 
-# set income gap == 0 to NA because in those instances we do not have income data per gender
-inc.gap = calc(inc.gap, fun = setNA)
-writeRaster(inc.gap, paste0(path_vul, "/inc_gap.tif"), overwrite = T)
-
-inc.wgt = calc(inc.gap,  fun = function(x) {x * 0.0209104692643852})
-#inc.wgt = mask(inc.wgt, lan)
-writeRaster(inc.wgt, paste0(path_vul, "/inc_wgt.tif"), overwrite = T)
-#inc.wgt = raster(paste0(path_vul, "/inc_wgt.tif"))
-
-
-# settl13 --> percent exposed transformed to presence multiplied by mean exposure
-#settl = crop(settl, e)
+# settlements (SMOD class 13) 
 rcl = c(0, 12, 0,  12.5, 13.5, 1,  14, 50, 0)
 rcl = matrix(rcl, ncol=3, byrow=TRUE)
 settl = reclassify(settl, rcl)
 settl = mask(settl, lan)
+writeRaster(settl, paste0(path, "villages.tif"), overwrite = T)
 
-writeRaster(settl, paste0(path_vul, "/settl_smod13.tif"), overwrite = T)
-
-settl.wgt = calc(settl,  fun = function(x) {x * 0.396087224486764}) # coef from lm (=0.0830145816717685) * (mean(smod_rel)== 4.771297
-writeRaster(settl.wgt, paste0(path_vul, "/settl_wgt.tif"), overwrite = T)
-#settl.wgt = raster(paste0(path_vul, "/settl_wgt.tif"))
-
-
-# elderly tot proportion --> percent
-#prop_ag = crop(prop_ag, e)
+# elderly
 eld.tot = stack(prop_ag[[14]], prop_ag[[28]])
-eld.tot = calc(eld.tot, fun = function(x) {
-  x = sum(x, na.rm = T) * 100; return(x)})
+eld.tot = calc(eld.tot, fun = function(x) {x = sum(x, na.rm = T) * 100; return(x)})
 eld.tot = mask(eld.tot, lan)
-writeRaster(eld.tot, paste0(path_vul, "/eld_tot_perc.tif"), overwrite = T)
+writeRaster(eld.tot, paste0(path, "percent_elderly.tif"), overwrite = T)
 
-eld.wgt = calc(eld.tot,  fun = function(x) {x * 0.0469823888996626})
-writeRaster(eld.wgt, paste0(path_vul, "/eld_wgt.tif"), overwrite = T)
-#eld.wgt = raster(paste0(path_vul, "/eld_wgt.tif"))
-
-
-# walk --> from minutes to hours
-# adjust extents
-#tvl = crop(tvl, e)
-tvl = extend(tvl, eld.wgt)
-name = paste0(path_vul, "/wlk_glo_hrs.tif")
-
+# walking time
+tvl = extend(tvl, eld.wgt) # adjust extents
 tvl = calc(tvl,  fun = function(x) {x / 60})
-writeRaster(tvl,filename = name, overwrite = T)
-
-wlk.wgt = calc(tvl,  fun = function(x) {x * 0.00520586310110901})
-writeRaster(wlk.wgt, paste0(path_vul, "/wlk_wgt.tif"), overwrite = T)
-#wlk.wgt = raster(paste0(path_vul, "/wlk_wgt.tif"))
+writeRaster(tvl, paste0(path, "walk_healthcare_hours.tif"), overwrite = T)
 
 
+## 2. calculate GlobE-SoVI ##
 
-## vulnerability sum ##
-vul = sum(edu.wgt, inc.wgt, settl.wgt, eld.wgt, wlk.wgt)#, na.rm = T) #
-writeRaster(vul, paste0(path_vul, "/vul_fat.log_sum_ngov.tif"), overwrite = T)
-#vul = raster(paste0(path_vul, "/vul_fat.log_sum_ngov.tif"))
+# raster weighting
+settl.wgt = calc(settl,  fun = function(x) {x * 0.396087224486764}) #coef$x [4] --> percent exposed transformed to presence multiplied by mean exposure (=0.0830145816717685) * (mean(smod_rel)== 4.771297
+edu.wgt = calc(mys.gen,  fun = function(x) {x * -0.199541185387587}) #coef$x [5]
+eld.wgt = calc(eld.tot,  fun = function(x) {x * 0.0469823888996626}) #coef$x [6]
+wlk.wgt = calc(tvl,  fun = function(x) {x * 0.00520586310110901}) #coef$x [7]
+inc.wgt = calc(inc.gap,  fun = function(x) {x * 0.0209104692643852}) #coef$x [8]
 
+# vulnerability sum
+vul = sum(edu.wgt, inc.wgt, settl.wgt, eld.wgt, wlk.wgt)
 
-# scale vulnerability map to 0-1
-# a) original values
-p = 0
-vul_ori = vul_sc(vul, p)
-writeRaster(vul_ori, paste0(path_vul, "/vul_sum_ori_ngov_sc.tif"), overwrite = T)
-
-# b) 1st and 99th qu removed
+# scale vulnerability map to 1-10
 p = c(0.01, 0.99)
-vul_out = vul_sc(vul, p)
-writeRaster(vul_out, paste0(path_vul, "/vul_sum_out_ngov_sc_p1_NA.tif"), overwrite = T)
+vul = vul_sc(vul, p)
+writeRaster(vul, paste0(path, "GlobE-SoVI.tif"), overwrite = T)
 
 
-## vulnerability exp ## --> final vul
-vul = calc(vul, fun = function(x) {exp(x)})
-vul = mask(vul, lan)
-writeRaster(vul, paste0(path_vul, "/vul_fat.log_exp_ngov.tif"), overwrite = T)
+## 3. aggregate to administrative unit level
 
+# create raster stack
+char = stack(mys.gen, inc.gap, settl, eld.tot, tvl, vul)
 
-# scale vulnerability map to 0-1
-# a) original values
-p = 0
-vul_ori = vul_sc(vul, p)
-writeRaster(vul_ori, paste0(path_vul, "/vul_exp_ori_ngov_sc.tif"), overwrite = T)
+# zonal statistics
+adm = adm[,1]
+char = zonal(char, adm, fun = mean, na.rm = T, df = T)
 
-# b) 1st and 99th qu removed
-p = c(0.01, 0.99)
-vul_out = vul_sc(vul, p)
-writeRaster(vul_out, paste0(path_vul, "/vul_exp_out_ngov_sc_p1_NA.tif"), overwrite = T)
+# change colnames
+colnames(char) <- c("ID", "MYS_gen", "inc_gap", "village", "eld_per", "wlk_hrs", "GlobE-SoVI")
 
+# make settlement percentage
+char$village <- char$village * 100
 
-
-
+# make spatial
+adm.char = merge(adm, char, by.x = "UID", by.y = "ID")
+write_sf(adm.char, paste0(path, "GlobE-SoVI.shp"))
 

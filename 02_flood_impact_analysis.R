@@ -769,39 +769,6 @@ summary(exp.risk3)
 # write coefficients of Model 3
 write.csv(exp.risk3$coefficients, paste0(path, "regression_coefficients.csv"))
 
-# Spearman correlations of established variables
-# MODEL 2, vul vars only
-var.cor = ev.char[,c("mys_gen", "eld.t_rel", "inc_gap", "cns_mn", "smod13_rel", "wlk.ma", "prot.riv.mn", "gov")]
 
-colnames(var.cor) = c("mean years schooling", "elderly", "gender income gap", 
-                      "mean consumption", "villages", "walking time to healthcare", "riverine protection standard", "governance")
+####----------------------- continue with script 03 --------------------------####
 
-cor.v = cor(var.cor, use = "complete.obs", method = "spearman")
-cor.v = round(cor.v, 2)
-corrplot(cor.v, method = "number", type = "upper", tl.srt = 35, tl.cex = 0.95)
-
-
-# subset df to relevant variables based on Model 3
-cols = c("Code","system.index", "dfo_centroid_x", "dfo_centroid_y", "dfo_dead", "dur_tot", "pop_exp", "mys_gen", 
-         "smod13_rel", "wlk.ma", "eld.t_rel", "inc_gap", "fat.log") 
-ev.char = subset(ev.char, select = cols)
-
-# calculate model error
-# predict fat
-fat.mod = (predict(exp.risk3, newdata = ev.char))
-ev.char$fat.mod <- exp(fat.mod)
-
-# absolute error
-ev.char$err.abs <- ev.char$fat.mod - ev.char$dfo_dead
-# relative error
-ev.char$err.rel <- (ev.char$fat.mod - ev.char$dfo_dead)/ev.char$dfo_dead
-
-# remove outliers 
-ev.char2 = subset(ev.char, dfo_dead < 10000)
-
-# errors for overestimated versus underestimated events
-mod_un = subset(ev.char, err.abs < 0) # mean error = 384; rel = 86 %
-mod_un2 = subset(ev.char2, err.abs < 0) # 111, rel = 86 %
-
-mod_ov = subset(ev.char, err.abs > 0) # mean error = 14; rel = 243 %
-mod_ov2 = subset(ev.char2, err.abs > 0) # 14, rel = 243
