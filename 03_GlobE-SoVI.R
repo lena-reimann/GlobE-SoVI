@@ -220,5 +220,8 @@ char$rur_settl <- char$rur_settl * 100
 
 # make spatial
 adm.char = merge(adm, char, by.x = "UID", by.y = "ID")
+
+# write csv and shp
+write.csv(char,  paste0(path, "GlobE-SoVI.csv"))
 write_sf(adm.char, paste0(path, "GlobE-SoVI.shp"))
 
