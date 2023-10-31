@@ -1,13 +1,13 @@
-#####################################################################
-#### estimate regression model based on vul char per flood event ####
-#####################################################################
+##########################################################################################
+#### Estimate regression model based on vulnerability characteristics per flood event ####
+##########################################################################################
 # by Lena Reimann
-# June 1, 2023
+# October 31, 2023
 
 # This script corresponds to the data processing described in '2) Flood Impact Analysis' of
-# Reimann et al. "An empirical social vulnerability map (‘GlobE-SoVI’) for flood risk assessment at global scale".
-# The final results are three estimated linear regression models along with the vulnerability variables that significantly 
-# contribute to predicting flood fatalities
+# Reimann et al. "An empirical social vulnerability map for flood risk assessment at global scale (‘GlobE-SoVI’)".
+# After calculating vulnerability characteristics per flood event, different regression model are tested before the final model 
+# model configuration is found along with the vulnerability variables that significantly contribute to predicting flood fatalities.
 # Technical note: the part 'I - establish vulnerability characteristics per flood event' was run with 8 cores and 255G of memory
 
 rm(list=ls())
@@ -24,6 +24,8 @@ library(rgdal, lib.loc = lib)
 library(iterators, lib.loc = lib)
 library(corrplot, lib.loc = lib)
 library(stats, lib.loc = lib)
+library(car, lib.loc = lib)
+
 
 #for parallel processing
 library("parallel", lib.loc = lib)
@@ -665,8 +667,12 @@ write.csv(ev.tot, paste0(path, "event_vul_char.csv"), row.names = F)
 
 ## 1. prep data ##
 
-# add event severity from gfd
-ev.tot = merge(ev.tot, ev[,c("system.index", "dfo_centroid_x", "dfo_centroid_y", "dfo_severity")])
+# extract event year
+ev$year = extr_year(ev$dfo_began)
+
+# merge calculated variables with event year
+ev.tot = merge(ev[,c("system.index", "year")], ev.tot, by = "system.index")
+
 
 # data cleaning
 #protection levels
@@ -690,29 +696,33 @@ ev.tot[which(ev.tot$cns_md == "NaN"),"cns_mn"] <- NA
 
 # calculate relative share of age and income characteristics
 #age
-ev.tot$chi.f_rel = ev.tot$chi_f / ev.tot$pop_exp
-ev.tot$chi.m_rel = ev.tot$chi_m / ev.tot$pop_exp
-ev.tot$chi.t_rel = ev.tot$chi_t / ev.tot$pop_exp
+ev.tot$chi_f = ev.tot$chi_f / ev.tot$pop_exp
+ev.tot$chi_m = ev.tot$chi_m / ev.tot$pop_exp
+ev.tot$chi_t = ev.tot$chi_t / ev.tot$pop_exp
 
-ev.tot$wrk.f_rel = ev.tot$wrk_f / ev.tot$pop_exp
-ev.tot$wrk.m_rel = ev.tot$wrk_m / ev.tot$pop_exp
-ev.tot$wrk.t_rel = ev.tot$wrk_t / ev.tot$pop_exp
+ev.tot$wrk_f = ev.tot$wrk_f / ev.tot$pop_exp
+ev.tot$wrk_m = ev.tot$wrk_m / ev.tot$pop_exp
+ev.tot$wrk_t = ev.tot$wrk_t / ev.tot$pop_exp
 
-ev.tot$eld.f_rel = ev.tot$eld_f / ev.tot$pop_exp
-ev.tot$eld.m_rel = ev.tot$eld_m / ev.tot$pop_exp
-ev.tot$eld.t_rel = ev.tot$eld_t / ev.tot$pop_exp
+ev.tot$eld_f = ev.tot$eld_f / ev.tot$pop_exp
+ev.tot$eld_m = ev.tot$eld_m / ev.tot$pop_exp
+ev.tot$eld_t = ev.tot$eld_t / ev.tot$pop_exp
+
+# income
+ev.tot$inc_gap = (ev.tot$incm_exp - ev.tot$incf_exp) / ev.tot$incm_exp
 
 # settlements: rural from smod 11 and 12
 ev.tot$rur11_12 = ev.tot$smod11_rel + ev.tot$smod12_rel
 
+
 # calculate additional vars potentially of interest
 ev.tot$fat.log = log(ev.tot$dfo_dead)
-ev.tot$exp.log = log(ev.tot$pop_exp)
 
 #replace infinites with 0s
 ev.tot[which(is.infinite(ev.tot$fat.log)),"fat.log"] <- 0
-ev.tot[which(is.infinite(ev.tot$exp.log)),"exp.log"] <- 0
 
+
+# add national-level variables
 # adaptation readiness index
 ev.tot = merge(ev.tot, nd.gain[,c("ISO3", "X2010")], by.x = "iso", by.y = "ISO3", all.x = T)
 colnames(ev.tot) [colnames(ev.tot) == "X2010"] <- "nd_gain"
@@ -724,48 +734,149 @@ gov = subset(gov, year == 2010, select = c(countrycode, governance))
 ev.tot = merge(ev.tot, gov, by.x = "iso", by.y = "countrycode", all.x = T)
 colnames(ev.tot) [colnames(ev.tot) == "governance"] <- "gov"
 
-# subset data for analysis 
-#remove all instances where E is NA 
-ev.char = ev.tot[which(ev.tot$pop_exp > 0), ] # 911 events
+# subset data for analysis: remove all instances where fat > E
+ev.char = ev.tot[-c(which(ev.tot$dfo_dead > ev.tot$pop_exp)), ] # 911 events
+ev.char = subset(ev.char, select = -c(flo, dur_mean, pop_day, f_exp, inc_gap_exp)) # drop calculated variables not needed for the analysis
 
-#change rel values to % and walking time to hours
+# rearrange dataframe to have all variables derived from the same dataset next to each other
+#determine column order
+order <- c(1:4, 52, 5:18, 37:38, 19:26, 46:50, 27:36, 51, 39:45, 53:54)
+
+#Rearrange columns using dplyr
+ev.char <- ev.char %>% dplyr::select(order)
+
+#transform variables
 ev.char$pop_exp = ev.char$pop_exp / 1000000
-ev.char$eld.t_rel = ev.char$eld.t_rel*100
+
+ev.char$chi_f = ev.char$chi_f*100
+ev.char$chi_m = ev.char$chi_m*100
+ev.char$chi_t = ev.char$chi_t*100
+ev.char$wrk_f = ev.char$wrk_f*100
+ev.char$wrk_m = ev.char$wrk_m*100
+ev.char$wrk_t = ev.char$wrk_t*100
+ev.char$eld_f = ev.char$eld_f*100
+ev.char$eld_m = ev.char$eld_m*100
+ev.char$eld_t = ev.char$eld_t*100
+ev.char$ydr = ev.char$ydr*100
+ev.char$odr = ev.char$odr*100
+ev.char$cdr = ev.char$cdr*100
+
+ev.char$f_prop = ev.char$f_prop*100
+
+ev.char$incf_exp = ev.char$incf_exp/ 1000000
+ev.char$incm_exp = ev.char$incm_exp/ 1000000
+ev.char$inct_exp = ev.char$inct_exp/ 1000000
 ev.char$inc_gap = ev.char$inc_gap*100
+
+ev.char$rel.190 = ev.char$rel.190*100
+ev.char$rel.320 = ev.char$rel.320*100
+ev.char$rel.550 = ev.char$rel.550*100
+
+ev.char$smod11_rel = ev.char$smod11_rel*100
+ev.char$smod12_rel = ev.char$smod12_rel*100
 ev.char$smod13_rel = ev.char$smod13_rel*100
+ev.char$smod21_rel = ev.char$smod21_rel*100
+ev.char$smod22_rel = ev.char$smod22_rel*100
+ev.char$smod23_rel = ev.char$smod23_rel*100
+ev.char$smod30_rel = ev.char$smod30_rel*100
+ev.char$rur_rel = ev.char$rur_rel*100
+ev.char$urb_rel = ev.char$urb_rel*100
+ev.char$sub_rel = ev.char$sub_rel*100
+ev.char$rur11_12 = ev.char$rur11_12*100
+
+ev.char$wlk.mn = ev.char$wlk.mn/60
 ev.char$wlk.ma = ev.char$wlk.ma/60
+ev.char$mot.mn = ev.char$mot.mn/60
+ev.char$mot.ma = ev.char$mot.ma/60
 
-#replace NAs in SMOD13 with 0s
-ev.char[which(is.na(ev.char$smod13_rel)),"smod13_rel"] <- 0
+
+## 2. trend analysis ##
+trend = lm(fat.log ~ year, data = ev.char) 
+summary(trend)
 
 
-## 2. estimate linear regression model ##
+## 3. explore linear regression model ##
 
 # MODEL 1: basic model without V
-exp.risk1 = lm(fat.log ~ pop_exp + dur_tot, data = ev.char)
-summary(exp.risk1)
+model1 = lm(fat.log ~ pop_exp + dur_tot, data = ev.char)
+summary(model1)
 
-# MODEL 2
-# 2a including all potential variables, also those that are not significant
-exp.risk2 = lm(fat.log ~ pop_exp + dur_tot + smod13_rel + mys_gen + eld.t_rel + wlk.ma + 
-                 inc_gap + gov + prot.riv.mn + cns_mn, data = ev.char)
-summary(exp.risk2)
 
-# 2b removing insignificant variables --> gov not significant any more
-exp.risk2 = lm(fat.log ~ pop_exp + dur_tot + smod13_rel + mys_gen + wlk.ma + inc_gap + 
-                 gov, data = ev.char)
-summary(exp.risk2)
+# Semi-automated stepwise approach
+#basic model for stepwise approach based on variable selection (i.e. significant variables per variable group)
+model_basic = lm(fat.log ~ pop_exp + dur_tot + 
+                chi_m + chi_t + wrk_t + eld_f + odr + ydr + mean_age + med_age + 
+                inc_gap + minc_exp + incm_exp + mys_exp + mys_gen + 
+                smod11_rel + smod12_rel + smod13_rel + smod23_rel + smod30_rel + #rur11_12 + #rur_rel + urb_rel +
+                prot.riv.mn + cns_mn + cns_md + rel.190 + rel.320 + rel.550 + 
+                wlk.mn + wlk.ma + gov + nd_gain , 
+              data = ev.char)
 
-# 2c removing gov
-exp.risk2 = lm(fat.log ~ pop_exp + dur_tot + smod13_rel + mys_gen + wlk.ma + inc_gap, 
-               data = ev.char)
-summary(exp.risk2)
+summary(model_basic) #Table S4
 
-# MODEL 3: final configuration (final result after intensive testing)
-exp.risk3 = lm(fat.log ~ pop_exp + dur_tot + smod13_rel + mys_gen + eld.t_rel + 
-                 wlk.ma + inc_gap, data = ev.char)
-summary(exp.risk3)
+#run stepwise model: MODEL 2
+model2 = step(model_basic, direction = "both")
+summary(model2)
 
-# write coefficients of Model 3
-write.csv(exp.risk3$coefficients, paste0(path, "regression_coefficients.csv"))
+#significance (until all vars p< 0.05)
+model3 = update(model2, . ~. - med_age)
+model3 = update(model3, . ~. - chi_t)
+model3 = update(model3, . ~. - ydr)
+model3 = update(model3, . ~. - cns_md)
+
+#test for multicollinearity
+vif(model3)
+
+#remove collinear variables step by step
+model3 = update(model3, . ~. - mys_exp)
+
+#remove insignificant vars
+model3 = update(model3, . ~. - rel.550)
+model3 = update(model3, . ~. - wrk_t)
+model3 = update(model3, . ~. - odr)
+
+vif(model3)
+
+#remove collinear vars
+model3 = update(model3, . ~. - smod11_rel)
+
+#remove insignificant vars
+model3 = update(model3, . ~. - smod30_rel)
+model3 = update(model3, . ~. - smod12_rel)
+
+vif(model3)
+
+#remove collinear vars
+model3 = update(model3, . ~. - minc_exp)
+
+#remove insignificant vars
+model3 = update(model3, . ~. - prot.riv.mn)
+
+vif(model3)
+
+#remove collinear vars
+model3 = update(model3, . ~. - cns_mn)
+
+#remove insignificant vars
+model3 = update(model3, . ~. - gov)
+
+#remove double-counting vars
+model3 = update(model3, . ~. - wlk.mn)
+summary(model3) #.272 
+
+#add other variables again based on significance and R2, ensuring that VIF <5 (test all possible variables)
+test = update(model3, . ~. + eld_t) #.2779
+test = update(model3, . ~. + prot.riv.mn) #.2765
+
+vif(test)
+summary(test)
+
+# FINAL MODEL CONFIGURATION: Model 3
+model3 = update(model3, . ~. + eld_t) 
+summary(model3)
+#model3 = lm(fat.log ~ pop_exp + dur_tot + smod13_rel + mys_gen + eld_t + 
+#                 wlk.ma + inc_gap, data = ev.char) #.2779
+
+coef = model3$coefficients
+write.csv(coef, paste0(path, "regression_coefficients.csv"))
 
