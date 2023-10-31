@@ -2,10 +2,10 @@
 #### produce final GlobE-SoVI map ####
 ######################################
 # by Lena Reimann
-# June 1, 2023
+# October 31, 2023
 
 # This script corresponds to the data processing described in '3) GlobE-SoVI' of
-# Reimann et al. "An empirical social vulnerability map (‘GlobE-SoVI’) for flood risk assessment at global scale".
+# Reimann et al. "An empirical social vulnerability map for flood risk assessment at global scale (‘GlobE-SoVI’)".
 # The final output is a global social vulnerability map calculated as the weighted sum of all relevant 
 # vulnerability variables, scaled from 1-10, both in raster format (i.e. GeoTIFF) and vector format (i.e. shapefile) per administrative unit.
 
@@ -171,7 +171,7 @@ rcl = c(0, 12, 0,  12.5, 13.5, 1,  14, 50, 0)
 rcl = matrix(rcl, ncol=3, byrow=TRUE)
 settl = reclassify(settl, rcl)
 settl = mask(settl, lan)
-writeRaster(settl, paste0(path, "villages.tif"), overwrite = T)
+writeRaster(settl, paste0(path, "rural_settlements.tif"), overwrite = T)
 
 # elderly
 eld.tot = stack(prop_ag[[14]], prop_ag[[28]])
@@ -187,12 +187,12 @@ writeRaster(tvl, paste0(path, "walk_healthcare_hours.tif"), overwrite = T)
 
 ## 2. calculate GlobE-SoVI ##
 
-# raster weighting
-settl.wgt = calc(settl,  fun = function(x) {x * 0.396087224486764}) #coef$x [4] --> percent exposed transformed to presence multiplied by mean exposure (=0.0830145816717685) * (mean(smod_rel)== 4.771297
-edu.wgt = calc(mys.gen,  fun = function(x) {x * -0.199541185387587}) #coef$x [5]
-eld.wgt = calc(eld.tot,  fun = function(x) {x * 0.0469823888996626}) #coef$x [6]
-wlk.wgt = calc(tvl,  fun = function(x) {x * 0.00520586310110901}) #coef$x [7]
-inc.wgt = calc(inc.gap,  fun = function(x) {x * 0.0209104692643852}) #coef$x [8]
+# raster weighting based on regression coefficients
+settl.wgt = calc(settl,  fun = function(x) {x * 0.3958673}) #percent exposed transformed to presence multiplied by mean exposure (=0.0830145816717685) * (mean(smod_rel)== 4.771297
+edu.wgt = calc(mys.gen,  fun = function(x) {x * -0.209976450721468})
+eld.wgt = calc(eld.tot,  fun = function(x) {x * 0.0540403921327649})
+wlk.wgt = calc(tvl,  fun = function(x) {x * 0.00514173490948157})
+inc.wgt = calc(inc.gap,  fun = function(x) {x * 0.0180278658712546})
 
 # vulnerability sum
 vul = sum(edu.wgt, inc.wgt, settl.wgt, eld.wgt, wlk.wgt)
@@ -213,10 +213,10 @@ adm = adm[,1]
 char = zonal(char, adm, fun = mean, na.rm = T, df = T)
 
 # change colnames
-colnames(char) <- c("ID", "MYS_gen", "inc_gap", "village", "eld_per", "wlk_hrs", "GlobE-SoVI")
+colnames(char) <- c("ID", "MYS_gen", "inc_gap", "rur_settl", "eld_per", "wlk_hrs", "GlobE-SoVI")
 
 # make settlement percentage
-char$village <- char$village * 100
+char$rur_settl <- char$rur_settl * 100
 
 # make spatial
 adm.char = merge(adm, char, by.x = "UID", by.y = "ID")
